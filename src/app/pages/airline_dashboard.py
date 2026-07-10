@@ -103,6 +103,7 @@ ranking_data = (
 
 
 
+
 ranking_fig = px.bar(
 
     ranking_data.head(15),
@@ -310,28 +311,27 @@ heatmap_data = pd.DataFrame(
 )
 
 
+box_plot_data = df
 
-heatmap_fig = px.imshow(
 
-    [heatmap_data["Delay Minutes"].values],
+# Box Plot showing distribution of Arrival Delays per Airline
+box_fig = px.box(
+    box_plot_data,
+    x="Airline",
+    y="ArrDelay",
+    color="Airline",
+    title="Distribution of Arrival Delays by Airline"
+)
 
-    labels={
-        "x":"Delay Cause",
-        "y":""
-    },
-
-    x=heatmap_data["Cause"],
-
-    color_continuous_scale="Plasma",
-
-    title="Delay Cause Heatmap"
-
+box_fig.update_layout(
+    template="plotly_dark",
+    height=250,
+    margin=dict(l=20, r=20, t=30, b=20),
+    showlegend=False # Set to False to keep the UI clean
 )
 
 
-heatmap_fig.update_layout(
-    template="plotly_dark"
-)
+
 
 
 
@@ -438,34 +438,27 @@ layout = html.Div(
         ),
 
 
-        # ================= DROPDOWN =================
-
+ # ================= DROPDOWN =================
         dbc.Row(
             [
                 dbc.Col(
                     dcc.Dropdown(
                         id="airline_dropdown",
-
                         options=[
-                            {
-                                "label": x,
-                                "value": x
-                            }
-                            for x in airlines
+                            {"label": x, "value": x} for x in airlines
                         ],
-
                         value=airlines[0],
-                        clearable=False
+                        clearable=False,
+                        style={
+                            "color": "#000000",
+                            "backgroundColor": "#FFFFFF"
+                        }
                     ),
-
                     width=4
                 )
             ],
-
             className="mb-4"
         ),
-
-
 
         # ================= KPI CARDS =================
 
@@ -547,7 +540,7 @@ layout = html.Div(
 
 
 
-        # ================= BAR + PIE =================
+        # ================= BAR + MONTHLY + HEATMAP =================
 
 
         dbc.Row(
@@ -620,7 +613,7 @@ layout = html.Div(
 
                             dcc.Graph(
 
-                                figure=heatmap_fig,
+                                figure=box_fig,
 
                                 config={
                                     "responsive":True,
