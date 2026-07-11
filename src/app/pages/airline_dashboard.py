@@ -1,305 +1,33 @@
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-
 from dash import html, dcc, Input, Output
 import dash_bootstrap_components as dbc
-
-
-# =====================================================
-# DATA PATH
-# =====================================================
-
 import os
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-from src.pipeline.config import PROCESSED_DIR
-
-FLIGHT_FILE = os.path.join(PROCESSED_DIR, "Flights_2022_sampled_1.8M.csv")
-
-AIRPORT_FILE = os.path.join(PROCESSED_DIR, "airports.csv")
-
-# =====================================================
-# LOAD DATA
-# =====================================================
-
-print("Loading Airline Dashboard Data...")
-
-
-df = pd.read_csv(
-    FLIGHT_FILE,
-    usecols=[
-        "Month",
-        "Operating_Airline ",
-        "Marketing_Airline_Network",
-        "ArrDelay",
-        "Cancelled",
-        "Flights",
-        "CarrierDelay",
-        "WeatherDelay",
-        "NASDelay",
-        "SecurityDelay",
-        "LateAircraftDelay",
-        "Origin",
-        "Dest",
-        "OriginState",
-        "DestState",
-        "AirTime"
-    ],
-    low_memory=False
-)
-
-airports = pd.read_csv(
-    AIRPORT_FILE
-)
-
-
-# =====================================================
-# CLEAN DATA
-# =====================================================
-
-df["Airline"] = (
-    df["Operating_Airline "]
-    .fillna(
-        df["Marketing_Airline_Network"]
-    )
-)
-
-
-df["ArrDelay"] = df["ArrDelay"].fillna(0)
-
-
-
-df["Delayed"] = (
-    df["ArrDelay"] > 15
-).astype(int)
-
-
-
-airlines = sorted(
-    df["Airline"]
-    .dropna()
-    .unique()
-)
-
-
-
-# =====================================================
-# INITIAL GRAPHS
-# =====================================================
-
-
-ranking_data = (
-
-    df.groupby("Airline")
-    .size()
-    .reset_index(
-        name="Flights"
-    )
-    .sort_values(
-        "Flights",
-        ascending=False
-    )
-
-)
-
-
-
-
-ranking_fig = px.bar(
-
-    ranking_data.head(15),
-
-    x="Airline",
-
-    y="Flights",
-
-    color="Flights",
-
-    color_continuous_scale="Viridis",
-
-    title="Top Airlines by Flight Volume"
-
-)
-
-
-ranking_fig.update_layout(
-    template="plotly_dark",
-    margin=dict(l=20, r=20, t=30, b=20),
-    height = 200
-)
-
-
-
-# Delay cause chart and scatter removed for layout restructure
-
-
-
-
-# =====================================================
-# GLOBAL MAX FOR RADAR
-# =====================================================
-
-grouped = df.groupby("Airline")
-MAX_FLIGHTS = grouped.size().max()
-MAX_DELAY = grouped["ArrDelay"].mean().max()
-MAX_CANCEL = grouped["Cancelled"].mean().max() * 100
-
-# =====================================================
-# DELAY HEATMAP
-# =====================================================
-
-
-heatmap_data = pd.DataFrame(
-
-    {
-
-    "Cause":[
-        "Carrier",
-        "Weather",
-        "NAS",
-        "Security",
-        "Late Aircraft"
-    ],
-
-
-    "Delay Minutes":[
-
-        df["CarrierDelay"].sum(),
-
-        df["WeatherDelay"].sum(),
-
-        df["NASDelay"].sum(),
-
-        df["SecurityDelay"].sum(),
-
-        df["LateAircraftDelay"].sum()
-
-    ]
-
-    }
-
-)
-
-
-box_plot_data = df
-
-
-# Box Plot showing distribution of Arrival Delays per Airline
-box_fig = px.box(
-    box_plot_data,
-    x="Airline",
-    y="ArrDelay",
-    color="Airline",
-    title="Distribution of Arrival Delays by Airline"
-)
-
-box_fig.update_layout(
-    template="plotly_dark",
-    height=250,
-    margin=dict(l=20, r=20, t=30, b=20),
-    showlegend=False # Set to False to keep the UI clean
-)
-
-
-
-
-
-
-# =====================================================
-# AIRPORT MAP
-# =====================================================
-
-
-route_airports = (
-
-    df["Origin"]
-
-    .value_counts()
-
-    .head(30)
-
-    .reset_index()
-
-)
-
-
-
-route_airports.columns=[
-
-    "faa",
-
-    "Flights"
-
-]
-
-
-
-route_map_data = route_airports.merge(
-
-    airports,
-
-    on="faa",
-
-    how="left"
-
-)
-
-
-
-map_fig = px.scatter_mapbox(
-
-    route_map_data,
-
-    lat="lat",
-
-    lon="lon",
-
-    size="Flights",
-
-    hover_name="name",
-
-    color="Flights",
-
-    color_continuous_scale="Turbo",
-
-    zoom=3,
-
-    height=600,
-
-    title="Top Airports by Flight Activity"
-
-)
-
-
-
-map_fig.update_layout(
-
-    mapbox_style="carto-darkmatter",
-
-    template="plotly_dark"
-
-)
-
-
-
-
+from src.app.db import get_db_connection, _build_where_clause, AIRPORTS_CSV_PATH
+
+print("Loading Airline Dashboard Data via DuckDB...")
+
+conn = get_db_connection()
+try:
+    df_al = conn.execute("SELECT DISTINCT Marketing_Airline_Network FROM flights WHERE Marketing_Airline_Network IS NOT NULL ORDER BY Marketing_Airline_Network").df()
+    airlines = df_al['Marketing_Airline_Network'].dropna().tolist()
+finally:
+    conn.close()
 
 # =====================================================
 # LAYOUT 
 # =====================================================
-
 layout = html.Div(
-
     style={
         "backgroundColor": "#0B132B",
         "minHeight": "100vh",
         "padding": "20px"
     },
-
     children=[
-
         dbc.Row([
             dbc.Col([
                 html.H1("Airline Performance Dashboard", 
@@ -309,8 +37,6 @@ layout = html.Div(
             ], width=12)
         ], className="mb-3 mt-1"),
 
-
- # ================= DROPDOWN =================
         dbc.Row(
             [
                 dbc.Col(
@@ -322,10 +48,7 @@ layout = html.Div(
                         value="ALL",
                         clearable=False,
                         placeholder="Select an Airline...",
-                        style={
-                            "color": "#000000",
-                            "backgroundColor": "#FFFFFF"
-                        }
+                        style={"color": "#000000", "backgroundColor": "#FFFFFF"}
                     ),
                     width=4
                 )
@@ -333,475 +56,245 @@ layout = html.Div(
             className="mb-4"
         ),
 
-        # ================= KPI CARDS =================
-
         dbc.Row(
             [
-
                 dbc.Col(
                     dbc.Card(
                         [
                             html.H5("Flights", style={"fontSize": "14px", "fontWeight": "600", "color": "#0ea5e9"}),
                             html.H2(id="kpi_flights", style={"color": "#0ea5e9", "fontWeight": "bold"})
                         ],
-                        style={"backgroundColor": "#1a1d2b", "border": "1px solid #0ea5e9", "borderRadius": "8px"},
-                        body=True
-                    ),
-                    width=3
+                        style={"backgroundColor": "#1a1d2b", "border": "1px solid #0ea5e9", "borderRadius": "8px"}, body=True
+                    ), width=3
                 ),
-
-
-
                 dbc.Col(
                     dbc.Card(
                         [
                             html.H5("Average Delay", style={"fontSize": "14px", "fontWeight": "600", "color": "#ef4444"}),
                             html.H2(id="kpi_delay", style={"color": "#ef4444", "fontWeight": "bold"})
                         ],
-                        style={"backgroundColor": "#1a1d2b", "border": "1px solid #ef4444", "borderRadius": "8px"},
-                        body=True
-                    ),
-                    width=3
+                        style={"backgroundColor": "#1a1d2b", "border": "1px solid #ef4444", "borderRadius": "8px"}, body=True
+                    ), width=3
                 ),
-
-
-
                 dbc.Col(
                     dbc.Card(
                         [
                             html.H5("On Time", style={"fontSize": "14px", "fontWeight": "600", "color": "#22c55e"}),
                             html.H2(id="kpi_ontime", style={"color": "#22c55e", "fontWeight": "bold"})
                         ],
-                        style={"backgroundColor": "#1a1d2b", "border": "1px solid #22c55e", "borderRadius": "8px"},
-                        body=True
-                    ),
-                    width=3
+                        style={"backgroundColor": "#1a1d2b", "border": "1px solid #22c55e", "borderRadius": "8px"}, body=True
+                    ), width=3
                 ),
-
-
-
                 dbc.Col(
                     dbc.Card(
                         [
                             html.H5("Cancelled", style={"fontSize": "14px", "fontWeight": "600", "color": "#f97316"}),
                             html.H2(id="kpi_cancel", style={"color": "#f97316", "fontWeight": "bold"})
                         ],
-                        style={"backgroundColor": "#1a1d2b", "border": "1px solid #f97316", "borderRadius": "8px"},
-                        body=True
-                    ),
-                    width=3
+                        style={"backgroundColor": "#1a1d2b", "border": "1px solid #f97316", "borderRadius": "8px"}, body=True
+                    ), width=3
                 ),
-
             ],
-
             className="mb-4"
-
         ),
 
-
-
-
-        # ================= BAR + MONTHLY + HEATMAP =================
-
-
         dbc.Row(
-
             [
-
                 dbc.Col(
-
-                    dbc.Card(
-                        dbc.CardBody(
-
-                            dcc.Graph(
-                                id="ranking_fig",
-
-                                config={
-                                    "responsive": True,
-                                    "displayModeBar": False
-                                },
-                                
-
-                                style={
-                                    "height":"300px"
-                                }
-                            )
-
-                        )
-                    ),
-
-                    width=4
-
+                    dbc.Card(dbc.CardBody(
+                        dcc.Graph(id="ranking_fig", config={"responsive": True, "displayModeBar": False}, style={"height":"300px"})
+                    ), style={"backgroundColor": "#1a1d2b", "border": "none", "borderRadius": "8px", "padding": "10px"}), width=4
                 ),
-
                 dbc.Col(
-
-                    dbc.Card(
-
-                        dbc.CardBody(
-
-                            dcc.Graph(
-
-                                id="radar_fig",
-
-                                config={
-                                    "responsive":True,
-                                    "displayModeBar":False
-                                },
-
-                                style={
-                                    "height":"300px"
-                                }
-
-                            )
-
-
-                        )
-
-                    ),
-
-                    width=4
-
+                    dbc.Card(dbc.CardBody(
+                        dcc.Graph(id="radar_fig", config={"responsive":True, "displayModeBar":False}, style={"height":"300px"})
+                    ), style={"backgroundColor": "#1a1d2b", "border": "none", "borderRadius": "8px", "padding": "10px"}), width=4
                 ),
-
-
-
                 dbc.Col(
-
-                    dbc.Card(
-
-                        dbc.CardBody(
-
-                            dcc.Graph(
-
-                                id="box_fig",
-
-                                config={
-                                    "responsive":True,
-                                    "displayModeBar":False
-                                },
-
-                                style={
-                                    "height":"300px"
-                                }
-
-                            )
-
-                        )
-
-                    ),
-
-                    width=4
-
+                    dbc.Card(dbc.CardBody(
+                        dcc.Graph(id="box_fig", config={"responsive":True, "displayModeBar":False}, style={"height":"300px"})
+                    ), style={"backgroundColor": "#1a1d2b", "border": "none", "borderRadius": "8px", "padding": "10px"}), width=4
                 )
-
             ],
-
             className="mb-4"
-
         ),
-
-
-
-
-        # ================= MAP + PIE =================
-
 
         dbc.Row(
-
             [
-
                 dbc.Col(
-
-                    dbc.Card(
-
-                        dbc.CardBody(
-
-                            dcc.Graph(
-
-                                id="map_fig",
-
-                                config={
-                                    "responsive":True,
-                                    "displayModeBar":False
-                                },
-
-                                style={
-                                    "height":"300px"
-                                }
-
-                            )
-
-                        )
-
-                    ),
-
-                    width=8
-
+                    dbc.Card(dbc.CardBody(
+                        dcc.Graph(id="map_fig", config={"responsive":True, "displayModeBar":True, "scrollZoom":True}, style={"height":"300px"})
+                    ), style={"backgroundColor": "#1a1d2b", "border": "none", "borderRadius": "8px", "padding": "10px"}), width=8
                 ),
-
                 dbc.Col(
-
-                    dbc.Card(
-                        dbc.CardBody(
-
-                            dcc.Graph(
-                                id="duration_fig",
-
-                                config={
-                                    "responsive": True,
-                                    "displayModeBar": False
-                                },
-
-                                style={
-                                    "height":"300px"
-                                }
-                            )
-
-                        )
-                    ),
-
-                    width=4
-
+                    dbc.Card(dbc.CardBody(
+                        dcc.Graph(id="duration_fig", config={"responsive": True, "displayModeBar": False}, style={"height":"300px"})
+                    ), style={"backgroundColor": "#1a1d2b", "border": "none", "borderRadius": "8px", "padding": "10px"}), width=4
                 ),
-
             ],
-
             className="mb-4"
-
         ),
-
-
-
-
-
-
-
-        # ================= SCATTER REMOVED =================
-
     ]
-
 )
-
-
-
 
 # =====================================================
 # CALLBACKS
 # =====================================================
-
-
 def register_callbacks(app):
-
-
     @app.callback(
-
         [
-
-        Output(
-            "kpi_flights",
-            "children"
-        ),
-
-        Output(
-            "kpi_delay",
-            "children"
-        ),
-
-        Output(
-            "kpi_ontime",
-            "children"
-        ),
-
-        Output(
-            "kpi_cancel",
-            "children"
-        ),
-
-        Output(
-            "radar_fig",
-            "figure"
-        ),
-
-        Output(
-            "duration_fig",
-            "figure"
-        ),
-        
-        Output(
-            "ranking_fig",
-            "figure"
-        ),
-        
-        Output(
-            "box_fig",
-            "figure"
-        ),
-        
-        Output(
-            "map_fig",
-            "figure"
-        )
-
+            Output("kpi_flights", "children"),
+            Output("kpi_delay", "children"),
+            Output("kpi_ontime", "children"),
+            Output("kpi_cancel", "children"),
+            Output("radar_fig", "figure"),
+            Output("duration_fig", "figure"),
+            Output("ranking_fig", "figure"),
+            Output("box_fig", "figure"),
+            Output("map_fig", "figure")
         ],
-
         [
             Input("airline_dropdown", "value"),
             Input("global-route-store", "data")
         ]
-
     )
-
-
     def update_cards(selected, route_data):
-        
-        # Apply Global Filters
-        temp = df.copy()
-        if route_data:
-            o_state = route_data.get("origin_state")
-            d_state = route_data.get("dest_state")
-            o_airport = route_data.get("origin_airport")
-            d_airport = route_data.get("dest_airport")
-            
-            if o_state: temp = temp[temp["OriginState"] == o_state]
-            if d_state: temp = temp[temp["DestState"] == d_state]
-            if o_airport: temp = temp[temp["Origin"] == o_airport]
-            if d_airport: temp = temp[temp["Dest"] == d_airport]
+        conn = get_db_connection()
+        try:
+            o_state = route_data.get("origin_state") if route_data else None
+            d_state = route_data.get("dest_state") if route_data else None
+            o_airport = route_data.get("origin_airport") if route_data else None
+            d_airport = route_data.get("dest_airport") if route_data else None
 
-        # Compute dynamic maxes for the current route
-        if len(temp) > 0:
-            route_grouped = temp.groupby("Airline")
-            dyn_max_flights = route_grouped.size().max()
-            dyn_max_delay = route_grouped["ArrDelay"].mean().max()
-            dyn_max_cancel = route_grouped["Cancelled"].mean().max() * 100
-        else:
-            dyn_max_flights = MAX_FLIGHTS
-            dyn_max_delay = MAX_DELAY
-            dyn_max_cancel = MAX_CANCEL
-
-        if selected != "ALL":
-            temp = temp[temp["Airline"] == selected]
-
-        flights = len(temp)
-
-        if flights == 0:
-            delay = 0
-            delayed_pct = 0
-            cancel = 0
-        else:
-            delay = round(temp["ArrDelay"].mean(), 2)
-            delayed_pct = round(temp["Delayed"].mean() * 100, 2)
-            cancel = round(temp["Cancelled"].mean() * 100, 2)
-            
-        ontime_pct = round(100 - delayed_pct, 2)
-
-        # Compute Radar Scores
-        if selected == "ALL":
-            f_score = 100
-        else:
-            f_score = (flights / dyn_max_flights) * 100 if dyn_max_flights > 0 else 0
-            
-        d_score = max(0, 100 - (delay / dyn_max_delay * 100)) if dyn_max_delay > 0 else 100
-        o_score = ontime_pct
-        c_score = max(0, 100 - (cancel / dyn_max_cancel * 100)) if dyn_max_cancel > 0 else 100
-
-        radar_fig = go.Figure()
-        radar_fig.add_trace(go.Scatterpolar(
-            r=[f_score, d_score, o_score, c_score],
-            theta=['Volume', 'Timeliness', 'On-Time', 'Completion'],
-            fill='toself',
-            name=selected,
-            line_color="cyan"
-        ))
-        radar_fig.update_layout(
-            polar=dict(
-                radialaxis=dict(visible=True, range=[0, 100], gridcolor="#334155"),
-                angularaxis=dict(gridcolor="#334155")
-            ),
-            showlegend=False,
-            template="plotly_dark",
-            margin=dict(l=30, r=30, t=40, b=30),
-            title="Performance Radar",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)"
-        )
-
-        # Duration Histogram
-        if not temp.empty and not temp["AirTime"].isna().all():
-            duration_fig = px.histogram(
-                temp, 
-                x="AirTime", 
-                nbins=30, 
-                title=f"Flight Duration Distribution",
-                color_discrete_sequence=["#eab308"]
+            where_global, params_global = _build_where_clause(
+                origin_state=o_state, dest_state=d_state, 
+                origin_airport=o_airport, dest_airport=d_airport
             )
-            duration_fig.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                margin=dict(l=20, r=20, t=40, b=20),
-                xaxis_title="Air Time (Mins)",
-                yaxis_title="Count"
+
+            # Get dynamic maxes across all airlines for this route
+            q_maxes = f"""
+                SELECT MAX(flights) as max_flights, MAX(avg_delay) as max_delay, MAX(cancel_pct) as max_cancel
+                FROM (
+                    SELECT Marketing_Airline_Network, 
+                           COUNT(*) as flights, 
+                           AVG(CAST(ArrDelay AS FLOAT)) as avg_delay, 
+                           AVG(CASE WHEN Cancelled = true THEN 1.0 ELSE 0.0 END)*100 as cancel_pct
+                    FROM flights
+                    {where_global}
+                    GROUP BY Marketing_Airline_Network
+                ) sub
+            """
+            max_res = conn.execute(q_maxes, list(params_global)).fetchone()
+            dyn_max_flights = float(max_res[0]) if max_res and max_res[0] else 0
+            dyn_max_delay = float(max_res[1]) if max_res and max_res[1] else 0
+            dyn_max_cancel = float(max_res[2]) if max_res and max_res[2] else 0
+
+            # Airline specific where clause
+            if selected != "ALL":
+                where_spec, params_spec = _build_where_clause(
+                    airline=selected, origin_state=o_state, dest_state=d_state, 
+                    origin_airport=o_airport, dest_airport=d_airport
+                )
+            else:
+                where_spec, params_spec = where_global, params_global
+
+            # 1. KPIs
+            q_stats = f"""
+                SELECT COUNT(*) as flights, 
+                       AVG(CAST(ArrDelay AS FLOAT)) as avg_delay,
+                       AVG(CASE WHEN CAST(ArrDelay AS FLOAT) > 15 THEN 1.0 ELSE 0.0 END)*100 as delayed_pct,
+                       AVG(CASE WHEN Cancelled = true THEN 1.0 ELSE 0.0 END)*100 as cancel_pct
+                FROM flights
+                {where_spec}
+            """
+            stats_res = conn.execute(q_stats, list(params_spec)).fetchone()
+            flights = int(stats_res[0]) if stats_res and stats_res[0] else 0
+            
+            if flights == 0:
+                return "0", "0 min", "0%", "0%", go.Figure(), go.Figure(), go.Figure(), go.Figure(), go.Figure()
+
+            delay = round(float(stats_res[1]), 2) if stats_res[1] is not None else 0
+            delayed_pct = float(stats_res[2]) if stats_res[2] is not None else 0
+            cancel = round(float(stats_res[3]), 2) if stats_res[3] is not None else 0
+            ontime_pct = round(100 - delayed_pct, 2)
+
+            # 2. Radar Chart
+            f_score = 100 if selected == "ALL" else ((flights / dyn_max_flights) * 100 if dyn_max_flights > 0 else 0)
+            d_score = max(0, 100 - (delay / dyn_max_delay * 100)) if dyn_max_delay > 0 else 100
+            o_score = ontime_pct
+            c_score = max(0, 100 - (cancel / dyn_max_cancel * 100)) if dyn_max_cancel > 0 else 100
+
+            radar_fig = go.Figure()
+            radar_fig.add_trace(go.Scatterpolar(
+                r=[f_score, d_score, o_score, c_score],
+                theta=['Volume', 'Timeliness', 'On-Time', 'Completion'],
+                fill='toself', name=selected, line_color="cyan"
+            ))
+            radar_fig.update_layout(
+                polar=dict(radialaxis=dict(visible=True, range=[0, 100], gridcolor="#334155"), angularaxis=dict(gridcolor="#334155")),
+                showlegend=False, template="plotly_dark", margin=dict(l=30, r=30, t=40, b=30), title="Performance Radar"
             )
-        else:
-            duration_fig = go.Figure()
-            duration_fig.update_layout(template="plotly_dark", title="No Flight Data")
 
-        # Top Airlines Bar Chart
-        if not temp.empty:
-            ranking_data = temp.groupby("Airline").size().reset_index(name="Flights").sort_values("Flights", ascending=False)
-            ranking_fig = px.bar(
-                ranking_data.head(15), x="Airline", y="Flights", color="Flights", color_continuous_scale="Viridis", title="Top Airlines by Flight Volume"
-            )
-            ranking_fig.update_layout(template="plotly_dark", margin=dict(l=20, r=20, t=30, b=20), height=200)
-        else:
-            ranking_fig = go.Figure()
-            ranking_fig.update_layout(template="plotly_dark", title="No Flight Data", height=200)
+            # 3. Duration Histogram
+            q_duration_cond = "AND AirTime IS NOT NULL" if where_spec else "WHERE AirTime IS NOT NULL"
+            q_duration = f"SELECT AirTime FROM flights {where_spec} {q_duration_cond} USING SAMPLE 5000"
+            df_dur = conn.execute(q_duration, list(params_spec)).df()
+            if not df_dur.empty:
+                duration_fig = px.histogram(df_dur, x="AirTime", nbins=30, title="Flight Duration Distribution", color_discrete_sequence=["#eab308"])
+                duration_fig.update_layout(template="plotly_dark", margin=dict(l=20, r=20, t=40, b=20), xaxis_title="Air Time (Mins)", yaxis_title="Count")
+            else:
+                duration_fig = go.Figure().update_layout(template="plotly_dark", title="No Flight Data")
 
-        # Box Plot
-        if not temp.empty:
-            box_fig = px.box(temp, x="Airline", y="ArrDelay", color="Airline", title="Distribution of Arrival Delays by Airline")
-            box_fig.update_layout(template="plotly_dark", height=250, margin=dict(l=20, r=20, t=30, b=20), showlegend=False)
-        else:
-            box_fig = go.Figure()
-            box_fig.update_layout(template="plotly_dark", title="No Flight Data", height=250)
+            # 4. Top Airlines Ranking
+            q_ranking = f"""
+                SELECT Marketing_Airline_Network AS Airline, COUNT(*) AS Flights
+                FROM flights {where_spec} GROUP BY Marketing_Airline_Network ORDER BY Flights DESC LIMIT 15
+            """
+            df_rank = conn.execute(q_ranking, list(params_spec)).df()
+            if not df_rank.empty:
+                ranking_fig = px.bar(df_rank, x="Airline", y="Flights", color="Flights", color_continuous_scale="Viridis", title="Top Airlines by Flight Volume")
+                ranking_fig.update_layout(template="plotly_dark", margin=dict(l=10, r=10, t=40, b=30), height=200)
+            else:
+                ranking_fig = go.Figure().update_layout(template="plotly_dark", title="No Flight Data", height=200)
 
-        # Airport Map
-        if not temp.empty:
-            route_airports = temp["Origin"].value_counts().head(30).reset_index()
-            route_airports.columns=["faa", "Flights"]
-            route_map_data = route_airports.merge(airports, on="faa", how="left")
-            map_fig = px.scatter_mapbox(
-                route_map_data, lat="lat", lon="lon", size="Flights", hover_name="name", color="Flights",
-                color_continuous_scale="Turbo", zoom=3, title="Top Airports by Flight Activity"
-            )
-            map_fig.update_layout(
-                mapbox_style="carto-darkmatter", 
-                template="plotly_dark",
-                margin=dict(l=10, r=10, t=40, b=10)
-            )
-        else:
-            map_fig = go.Figure()
-            map_fig.update_layout(template="plotly_dark", title="No Flight Data", margin=dict(l=10, r=10, t=40, b=10))
+            # 5. Box Plot (Limit to top 10 airlines)
+            q_box = f"""
+                WITH top_airlines AS (
+                    SELECT Marketing_Airline_Network FROM flights {where_spec} 
+                    GROUP BY Marketing_Airline_Network ORDER BY COUNT(*) DESC LIMIT 10
+                )
+                SELECT Marketing_Airline_Network AS Airline, CAST(ArrDelay AS FLOAT) AS ArrDelay
+                FROM flights 
+                {where_spec} 
+                {("AND " if where_spec else "WHERE ") + "Marketing_Airline_Network IN (SELECT Marketing_Airline_Network FROM top_airlines)"}
+                USING SAMPLE 10000
+            """
+            df_box = conn.execute(q_box, list(params_spec) * 2 if where_spec else []).df()
+            if not df_box.empty:
+                box_fig = px.box(df_box, x="Airline", y="ArrDelay", color="Airline", title="Arrival Delays by Airline (Sampled Top 10)")
+                box_fig.update_layout(template="plotly_dark", height=250, margin=dict(l=10, r=10, t=40, b=30), showlegend=False)
+            else:
+                box_fig = go.Figure().update_layout(template="plotly_dark", title="No Flight Data", height=250)
 
-        return (
+            # 6. Airport Map
+            safe_path = AIRPORTS_CSV_PATH.replace('\\', '/')
+            q_map = f"""
+                SELECT f.Origin AS faa, MAX(a.name) AS name, MAX(a.lat) AS lat, MAX(a.lon) AS lon, COUNT(*) AS Flights
+                FROM flights f
+                JOIN read_csv('{safe_path}') a ON f.Origin = a.faa
+                {where_spec}
+                GROUP BY f.Origin
+                HAVING MAX(a.lat) IS NOT NULL AND MAX(a.lon) IS NOT NULL
+                ORDER BY Flights DESC LIMIT 30
+            """
+            df_map = conn.execute(q_map, list(params_spec)).df()
+            if not df_map.empty:
+                map_fig = px.scatter_mapbox(df_map, lat="lat", lon="lon", size="Flights", hover_name="name", color="Flights", color_continuous_scale="Turbo", zoom=3.5, title="Top Airports by Flight Activity")
+                map_fig.update_layout(mapbox_style="carto-darkmatter", template="plotly_dark", margin=dict(l=10, r=10, t=40, b=10))
+            else:
+                map_fig = go.Figure().update_layout(template="plotly_dark", title="No Flight Data", margin=dict(l=10, r=10, t=40, b=10))
 
-            f"{flights:,}",
+            return f"{flights:,}", f"{delay} min", f"{ontime_pct}%", f"{cancel}%", radar_fig, duration_fig, ranking_fig, box_fig, map_fig
 
-            f"{delay} min",
-
-            f"{ontime_pct}%",
-
-            f"{cancel}%",
-            
-            radar_fig,
-            
-            duration_fig,
-            
-            ranking_fig,
-            
-            box_fig,
-            
-            map_fig
-
-        )
+        finally:
+            conn.close()
