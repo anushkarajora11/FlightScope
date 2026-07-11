@@ -109,26 +109,30 @@ def get_airport_delay_summary(airline=None, season=None, metric='DepDelay',
         if db_metric == 'Cancelled':
             agg_expr = "MEAN(CASE WHEN Cancelled = true THEN 1.0 ELSE 0.0 END) * 100"
         else:
-            agg_expr = f"AVG(CAST({db_metric} AS FLOAT))"
+            agg_expr = "AVG(CAST(metric_val AS FLOAT))"
 
         # Replace backslashes in paths with forward slashes for DuckDB read_csv on Windows
         safe_path = AIRPORTS_CSV_PATH.replace('\\', '/')
 
         query = f"""
+            WITH combined AS (
+                SELECT Origin AS faa, {db_metric} AS metric_val, Cancelled FROM flights {where_clause}
+                UNION ALL
+                SELECT Dest AS faa, {db_metric} AS metric_val, Cancelled FROM flights {where_clause}
+            )
             SELECT 
-                f.Origin AS faa,
+                c.faa,
                 MAX(a.name) AS name,
                 MAX(a.lat) AS lat,
                 MAX(a.lon) AS lon,
                 COUNT(*) AS flight_count,
                 {agg_expr} AS avg_metric
-            FROM flights f
-            JOIN read_csv('{safe_path}') a ON f.Origin = a.faa
-            {where_clause}
-            GROUP BY f.Origin
+            FROM combined c
+            JOIN read_csv('{safe_path}') a ON c.faa = a.faa
+            GROUP BY c.faa
             HAVING MAX(a.lat) IS NOT NULL AND MAX(a.lon) IS NOT NULL
         """
-        df = conn.execute(query, params).df()
+        df = conn.execute(query, params + params).df()
         return df
     finally:
         conn.close()
@@ -185,11 +189,16 @@ def get_temporal_delay_data(airport=None, airline=None, season=None, metric='Dep
     finally:
         conn.close()
 
-def get_overall_kpis(airport=None, airline=None, season=None):
+def get_overall_kpis(airport=None, airline=None, season=None,
+                     origin_state=None, dest_state=None, origin_airport=None, dest_airport=None):
     """Returns overall summary statistics for KPI cards."""
     conn = get_db_connection()
     try:
-        where_clause, params = _build_where_clause(airport=airport, airline=airline, season=season)
+        where_clause, params = _build_where_clause(
+            airport=airport, airline=airline, season=season,
+            origin_state=origin_state, dest_state=dest_state,
+            origin_airport=origin_airport, dest_airport=dest_airport
+        )
         
         query = f"""
             SELECT 

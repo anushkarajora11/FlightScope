@@ -768,7 +768,8 @@ def register_callbacks(app):
 
         # Airport Map
         if not temp.empty:
-            route_airports = temp["Origin"].value_counts().head(30).reset_index()
+            all_airports = pd.concat([temp["Origin"], temp["Dest"]])
+            route_airports = all_airports.value_counts().head(30).reset_index()
             route_airports.columns=["faa", "Flights"]
             route_map_data = route_airports.merge(airports, on="faa", how="left")
             map_fig = px.scatter_mapbox(

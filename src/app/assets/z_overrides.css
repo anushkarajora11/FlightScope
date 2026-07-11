@@ -1,0 +1,8 @@
+/* Aggressive CSS overrides for dropdowns */
+.header-dropdown .Select-placeholder { color: white !important; opacity: 0.8; }
+.header-dropdown .Select-value-label { color: white !important; }
+.header-dropdown .Select-clear-zone { color: white !important; }
+.header-dropdown .Select-clear { color: white !important; font-size: 1.5rem !important; }
+.header-dropdown .Select-arrow { border-color: white transparent transparent !important; }
+.header-dropdown svg { fill: white !important; stroke: white !important; color: white !important; }
+.header-dropdown path { fill: white !important; stroke: white !important; }

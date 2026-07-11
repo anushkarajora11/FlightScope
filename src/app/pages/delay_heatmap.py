@@ -330,7 +330,11 @@ def update_dashboard(metric, airline, season, selected_airport, route_data):
     if selected_airport:
         o_airport = selected_airport
     # 1. Fetch KPI Stats
-    kpi_stats = get_overall_kpis(airport=o_airport, airline=airline, season=season)
+    kpi_stats = get_overall_kpis(
+        airport=o_airport, airline=airline, season=season,
+        origin_state=o_state, dest_state=d_state,
+        origin_airport=o_airport, dest_airport=d_airport
+    )
     
     total_flights = f"{kpi_stats['total_flights']:,}"
     avg_dep = f"{kpi_stats['avg_dep_delay']:.1f} m"
@@ -338,13 +342,28 @@ def update_dashboard(metric, airline, season, selected_airport, route_data):
     cancel_rate = f"{kpi_stats['cancellation_rate']:.2f}%"
     
     # Selection status text
+    status_parts = []
+    
+    if airline:
+        status_parts.append(html.Span(f"Airline: {airline}", style={"color": "#3b82f6", "fontWeight": "700", "marginRight": "10px"}))
+        
     if selected_airport:
-        status_text = html.Div([
-            html.Span("Viewing Airport: ", style={"color": "#64748b"}),
-            html.Span(f"{selected_airport}", style={"color": "#f59e0b", "fontWeight": "700"})
-        ])
-    else:
-        status_text = html.Span("Viewing National Overview (All Airports)", style={"color": "#10b981", "fontWeight": "600"})
+        status_parts.append(html.Span(f"Selected Airport: {selected_airport}", style={"color": "#f59e0b", "fontWeight": "700", "marginRight": "10px"}))
+    elif o_airport or d_airport:
+        if o_airport:
+            status_parts.append(html.Span(f"Origin: {o_airport}", style={"color": "#f59e0b", "fontWeight": "700", "marginRight": "10px"}))
+        if d_airport:
+            status_parts.append(html.Span(f"Dest: {d_airport}", style={"color": "#f59e0b", "fontWeight": "700", "marginRight": "10px"}))
+    elif o_state or d_state:
+        if o_state:
+            status_parts.append(html.Span(f"Origin State: {o_state}", style={"color": "#f59e0b", "fontWeight": "700", "marginRight": "10px"}))
+        if d_state:
+            status_parts.append(html.Span(f"Dest State: {d_state}", style={"color": "#f59e0b", "fontWeight": "700", "marginRight": "10px"}))
+            
+    if not status_parts:
+        status_parts.append(html.Span("Viewing National Overview (All Airports)", style={"color": "#10b981", "fontWeight": "600"}))
+        
+    status_text = html.Div(status_parts)
 
     # 2. Fetch Map Data
     df_map = get_airport_delay_summary(
