@@ -2,6 +2,7 @@ import os
 import duckdb
 import pandas as pd
 import networkx as nx
+from functools import lru_cache
 from src.pipeline.config import DB_PATH, PROCESSED_DIR
 
 AIRPORTS_CSV_PATH = os.path.join(PROCESSED_DIR, "airports.csv")
@@ -24,7 +25,7 @@ def get_airlines():
     finally:
         conn.close()
 
-def _build_where_clause(airport=None, airline=None, season=None, month=None, date=None):
+def _build_where_clause(airport=None, airline=None, season=None, month=None, date=None, day_of_week=None, dep_hour=None, day_of_month=None):
     """Helper to construct WHERE clause filters dynamically using positional parameters."""
     conditions = []
     params = []
@@ -44,25 +45,39 @@ def _build_where_clause(airport=None, airline=None, season=None, month=None, dat
             conditions.append("Season = ?")
             params.append(season_map[season])
             
-    if month:
+    if month is not None:
         conditions.append("Month = ?")
         params.append(int(month))
         
     if date:
         conditions.append("CAST(FlightDate AS STRING) = ?")
         params.append(date)
+        
+    if day_of_week is not None:
+        conditions.append("DayOfWeek = ?")
+        params.append(int(day_of_week))
+        
+    if dep_hour is not None:
+        conditions.append("DepHour = ?")
+        params.append(int(dep_hour))
+        
+    if day_of_month is not None:
+        conditions.append("DayofMonth = ?")
+        params.append(int(day_of_month))
             
     where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
-    return where_clause, params
+    return where_clause, tuple(params)
 
-def get_airport_delay_summary(airline=None, season=None, metric='DepDelay'):
+@lru_cache(maxsize=128)
+def _get_airport_delay_summary_cached(airline, season, metric, month, day_of_week, dep_hour, day_of_month):
+    """Cached internal version of get_airport_delay_summary"""
     """
     Returns a summary of flights grouped by Origin airport.
     Joins with airports.csv to get lat/lon coordinates.
     """
     conn = get_db_connection()
     try:
-        where_clause, params = _build_where_clause(airline=airline, season=season)
+        where_clause, params = _build_where_clause(airline=airline, season=season, month=month, day_of_week=day_of_week, dep_hour=dep_hour, day_of_month=day_of_month)
         
         # Determine the database metric to aggregate
         db_metric = metric
@@ -91,12 +106,17 @@ def get_airport_delay_summary(airline=None, season=None, metric='DepDelay'):
             GROUP BY f.Origin
             HAVING MAX(a.lat) IS NOT NULL AND MAX(a.lon) IS NOT NULL
         """
-        df = conn.execute(query, params).df()
+        df = conn.execute(query, list(params)).df()
         return df
     finally:
         conn.close()
 
-def get_temporal_delay_data(airport=None, airline=None, season=None, metric='DepDelay'):
+def get_airport_delay_summary(airline=None, season=None, metric='DepDelay', month=None, day_of_week=None, dep_hour=None, day_of_month=None):
+    df = _get_airport_delay_summary_cached(airline, season, metric, month, day_of_week, dep_hour, day_of_month)
+    return df.copy()
+
+@lru_cache(maxsize=128)
+def _get_temporal_delay_data_cached(airport, airline, season, metric):
     """
     Returns aggregated metrics for:
     1. DayOfWeek vs DepHour (Hourly grid)
@@ -115,34 +135,60 @@ def get_temporal_delay_data(airport=None, airline=None, season=None, metric='Dep
         else:
             agg_expr = f"AVG(CAST({db_metric} AS FLOAT))"
 
-        # Query 1: DayOfWeek vs DepHour
         q_hourly = f"""
-            SELECT 
-                DayOfWeek,
-                DepHour,
-                {agg_expr} AS avg_val
-            FROM flights
-            {where_clause}
+            WITH base AS (
+                SELECT 
+                    DayOfWeek,
+                    DepHour,
+                    Marketing_Airline_Network,
+                    COUNT(*) as flight_count,
+                    MEAN(CASE WHEN Cancelled = true THEN 1.0 ELSE 0.0 END) * 100 as cancel_rate,
+                    {agg_expr} AS avg_val
+                FROM flights
+                {where_clause}
+                GROUP BY DayOfWeek, DepHour, Marketing_Airline_Network
+            )
+            SELECT DayOfWeek, DepHour, SUM(flight_count) as flight_count, 
+                   AVG(cancel_rate) as cancel_rate, 
+                   SUM(avg_val * flight_count)/SUM(flight_count) as avg_val,
+                   arg_max(Marketing_Airline_Network, avg_val) as worst_airline
+            FROM base
             GROUP BY DayOfWeek, DepHour
         """
-        df_hourly = conn.execute(q_hourly, params).df()
+        df_hourly = conn.execute(q_hourly, list(params)).df()
         
         # Query 2: Month vs DayofMonth
         q_monthly = f"""
-            SELECT 
-                Month,
-                DayofMonth,
-                {agg_expr} AS avg_val
-            FROM flights
-            {where_clause}
+            WITH base AS (
+                SELECT 
+                    Month,
+                    DayofMonth,
+                    Marketing_Airline_Network,
+                    COUNT(*) as flight_count,
+                    MEAN(CASE WHEN Cancelled = true THEN 1.0 ELSE 0.0 END) * 100 as cancel_rate,
+                    {agg_expr} AS avg_val
+                FROM flights
+                {where_clause}
+                GROUP BY Month, DayofMonth, Marketing_Airline_Network
+            )
+            SELECT Month, DayofMonth, SUM(flight_count) as flight_count,
+                   AVG(cancel_rate) as cancel_rate,
+                   SUM(avg_val * flight_count)/SUM(flight_count) as avg_val,
+                   arg_max(Marketing_Airline_Network, avg_val) as worst_airline
+            FROM base
             GROUP BY Month, DayofMonth
         """
-        df_monthly = conn.execute(q_monthly, params).df()
+        df_monthly = conn.execute(q_monthly, list(params)).df()
         
         return df_hourly, df_monthly
     finally:
         conn.close()
 
+def get_temporal_delay_data(airport=None, airline=None, season=None, metric='DepDelay'):
+    h, m = _get_temporal_delay_data_cached(airport, airline, season, metric)
+    return h.copy(), m.copy()
+
+@lru_cache(maxsize=128)
 def get_overall_kpis(airport=None, airline=None, season=None):
     """Returns overall summary statistics for KPI cards."""
     conn = get_db_connection()
@@ -158,7 +204,7 @@ def get_overall_kpis(airport=None, airline=None, season=None):
             FROM flights
             {where_clause}
         """
-        res = conn.execute(query, params).fetchone()
+        res = conn.execute(query, list(params)).fetchone()
         if res:
             return {
                 "total_flights": int(res[0]) if res[0] is not None else 0,
@@ -298,11 +344,11 @@ def get_airline_ranking(season=None, month=None, top_n=15):
     finally:
         conn.close()
 
-def get_airline_delay_causes(airline=None, season=None, month=None):
+def get_airline_delay_causes(airport=None, airline=None, season=None, month=None, day_of_week=None, dep_hour=None, day_of_month=None):
     """Returns total delay-minutes by cause, for the delay-cause pie chart."""
     conn = get_db_connection()
     try:
-        where_clause, params = _build_where_clause(airline=airline, season=season, month=month)
+        where_clause, params = _build_where_clause(airport=airport, airline=airline, season=season, month=month, day_of_week=day_of_week, dep_hour=dep_hour, day_of_month=day_of_month)
         query = f"""
             SELECT
                 SUM(CAST(CarrierDelay AS FLOAT)) AS CarrierDelay,

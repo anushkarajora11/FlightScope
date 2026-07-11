@@ -13,7 +13,9 @@ from src.app.pages import (
     delay_heatmap,
     airline_dashboard,
     delay_cause_sankey,
-    high_dim_analytics
+    high_dim_analytics,
+    compare_mode,
+    predictor
 )
 
 # Initialize Dash application with CYBORG theme and explicit assets folder
@@ -38,6 +40,8 @@ app.layout = html.Div([
             dbc.NavItem(dbc.NavLink("Airline Dashboard", href="/airline-dashboard", active="exact")),
             dbc.NavItem(dbc.NavLink("Delay Flow Sankey", href="/delay-cause-sankey", active="exact")),
             dbc.NavItem(dbc.NavLink("High-Dim Analytics", href="/high-dim-analytics", active="exact")),
+            dbc.NavItem(dbc.NavLink("Compare Mode", href="/compare-mode", active="exact")),
+            dbc.NavItem(dbc.NavLink("Delay Predictor", href="/predictor", active="exact")),
         ],
         brand="✈️ FlightScope Dashboard",
         brand_href="/",
@@ -84,6 +88,10 @@ def display_page(pathname):
         return get_module_layout(delay_cause_sankey, "Delay Cause Flow Sankey")
     elif pathname == "/high-dim-analytics":
         return get_module_layout(high_dim_analytics, "High-Dimensional Analytics")
+    elif pathname == "/compare-mode":
+        return get_module_layout(compare_mode, "Compare Mode")
+    elif pathname == "/predictor":
+        return get_module_layout(predictor, "Delay Predictor")
     elif pathname in ["/network-explorer", "/", ""]:
         return get_module_layout(network_explorer, "Network Explorer")
     else:
@@ -97,13 +105,13 @@ def display_page(pathname):
         ])
 
 # Register callbacks from all page views dynamically
-for module in [network_explorer, delay_heatmap, airline_dashboard, delay_cause_sankey, high_dim_analytics]:
+for module in [network_explorer, delay_heatmap, airline_dashboard, delay_cause_sankey, high_dim_analytics, compare_mode, predictor]:
     if hasattr(module, "register_callbacks"):
         module.register_callbacks(app)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8050))
     print(f"Starting FlightScope Dash server on http://127.0.0.1:{port} ...")
-    app.run(debug=True, port=port)
+    app.run(debug=False, port=port)
 
 

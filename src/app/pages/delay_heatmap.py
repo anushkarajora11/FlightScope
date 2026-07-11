@@ -10,7 +10,9 @@ from src.app.db import (
     get_airlines, 
     get_airport_delay_summary, 
     get_temporal_delay_data, 
-    get_overall_kpis
+    get_overall_kpis,
+    get_airport_list,
+    get_airline_delay_causes
 )
 
 # Register page if using multi-page Dash (Dash 2.0+)
@@ -90,15 +92,16 @@ STYLES = {
 }
 
 def get_layout():
-    # Fetch airlines for filter dropdown
     airlines = get_airlines()
     airline_options = [{"label": "All Airlines", "value": ""}] + [
         {"label": carrier, "value": carrier} for carrier in airlines
     ]
     
+    airports_df = get_airport_list()
+    airport_options = [{"label": f"{row['faa']} - {row['name']}", "value": row["faa"]} for _, row in airports_df.iterrows()]
+    
     return html.Div(style=STYLES["page_container"], children=[
-        # Selected Airport Hidden State
-        dcc.Store(id="selected-airport-store", data=None),
+        # Removed hidden store, we will use the dropdown value instead
         
         # Header Row
         dbc.Row([
@@ -117,6 +120,19 @@ def get_layout():
                         html.H5("Filters & Controls", style=STYLES["card_header_text"])
                     ]),
                     html.Div(style=STYLES["card_body"], children=[
+                        # Airport Search Dropdown
+                        html.Label("Search Airport", style=STYLES["label"]),
+                        dcc.Dropdown(
+                            id="airport-dropdown",
+                            options=airport_options,
+                            value=None,
+                            placeholder="Select or search airport...",
+                            clearable=True,
+                            searchable=True,
+                            className="mb-3",
+                            style={"color": "#111111"}
+                        ),
+                        
                         # Metric Dropdown
                         html.Label("Analysis Metric", style=STYLES["label"]),
                         dcc.Dropdown(
@@ -167,7 +183,7 @@ def get_layout():
                         
                         # Reset Selection Button
                         dbc.Button(
-                            "Reset Airport Filter", 
+                            "Reset All Filters", 
                             id="reset-airport-btn", 
                             color="outline-warning", 
                             size="sm", 
@@ -212,7 +228,17 @@ def get_layout():
                         html.H5("U.S. Airport Delay Distribution (Map)", style=STYLES["card_header_text"])
                     ]),
                     html.Div([
-                        dcc.Graph(id="delay-spatial-map", style={"height": "400px"})
+                        dcc.Graph(id="delay-spatial-map", style={"height": "400px"}),
+                        html.Div([
+                            html.Label("Time of Day Playback (Hour)", style=STYLES["label"]),
+                            dcc.Slider(
+                                id="hour-slider",
+                                min=0, max=23, step=1,
+                                marks={i: {'label': f"{i}:00", 'style': {'color': '#cbd5e1'}} for i in range(0, 24, 2)},
+                                value=None,
+                                tooltip={"placement": "bottom", "always_visible": False}
+                            )
+                        ], style={"padding": "10px", "marginTop": "10px"})
                     ], style={"padding": "10px"})
                 ])
             ], xs=12, md=8, lg=9, className="mb-4")
@@ -243,7 +269,7 @@ def get_layout():
                     ], style={"padding": "10px"})
                 ])
             ], xs=12, lg=6, className="mb-4")
-        ])
+        ]),
     ])
 
 # Callbacks logic
@@ -251,20 +277,26 @@ def register_callbacks(app_ignored):
     """Placeholder for legacy multi-page wiring (now registered globally via @callback)"""
     pass
 
-# Reset selected airport store
+# Reset selected airport store and heatmap clicks
 @callback(
-    Output("selected-airport-store", "data", allow_duplicate=True),
+    Output("airport-dropdown", "value", allow_duplicate=True),
+    Output("metric-dropdown", "value", allow_duplicate=True),
+    Output("airline-dropdown", "value", allow_duplicate=True),
+    Output("season-dropdown", "value", allow_duplicate=True),
+    Output("hourly-weekly-heatmap", "clickData", allow_duplicate=True),
+    Output("monthly-calendar-heatmap", "clickData", allow_duplicate=True),
+    Output("hour-slider", "value", allow_duplicate=True),
     Input("reset-airport-btn", "n_clicks"),
     prevent_initial_call=True
 )
 def reset_selected_airport(n_clicks):
-    return None
+    return None, "DepDelay", "", "", None, None, None
     
 # Set selected airport on map click
 @callback(
-    Output("selected-airport-store", "data"),
+    Output("airport-dropdown", "value"),
     Input("delay-spatial-map", "clickData"),
-    State("selected-airport-store", "data")
+    State("airport-dropdown", "value")
 )
 def update_selected_airport(clickData, current_selected):
     if not clickData:
@@ -298,10 +330,47 @@ def update_selected_airport(clickData, current_selected):
         Input("metric-dropdown", "value"),
         Input("airline-dropdown", "value"),
         Input("season-dropdown", "value"),
-        Input("selected-airport-store", "data"),
+        Input("airport-dropdown", "value"),
+        Input("hourly-weekly-heatmap", "clickData"),
+        Input("monthly-calendar-heatmap", "clickData"),
+        Input("hour-slider", "value"),
     ]
 )
-def update_dashboard(metric, airline, season, selected_airport):
+def update_dashboard(metric, airline, season, selected_airport, hw_click, mc_click, hour_slider):
+    ctx = dash.callback_context
+    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+
+    # Enforce mutual exclusion for temporal clicks by only keeping the most recently triggered one
+    if triggered_id == "hourly-weekly-heatmap":
+        mc_click = None
+    elif triggered_id == "monthly-calendar-heatmap":
+        hw_click = None
+
+    # Parse temporal clicks
+    day_of_week = None
+    dep_hour = None
+    month = None
+    day_of_month = None
+    
+    if hw_click:
+        try:
+            pt = hw_click['points'][0]
+            day_of_week = DAYS_OF_WEEK.index(pt['y'])
+            dep_hour = int(pt['x'].split(":")[0])
+        except Exception:
+            pass
+            
+    if hour_slider is not None:
+        dep_hour = hour_slider
+            
+    if mc_click:
+        try:
+            pt = mc_click['points'][0]
+            month = MONTHS.index(pt['y']) + 1
+            day_of_month = int(pt['x'])
+        except Exception:
+            pass
+
     # 1. Fetch KPI Stats
     kpi_stats = get_overall_kpis(airport=selected_airport, airline=airline, season=season)
     
@@ -311,16 +380,27 @@ def update_dashboard(metric, airline, season, selected_airport):
     cancel_rate = f"{kpi_stats['cancellation_rate']:.2f}%"
     
     # Selection status text
+    filters_text = []
     if selected_airport:
+        filters_text.append(f"Airport: {selected_airport}")
+    if day_of_week is not None and dep_hour is not None:
+        filters_text.append(f"Time: {DAYS_OF_WEEK[day_of_week]}s at {dep_hour}:00")
+    if month is not None and day_of_month is not None:
+        filters_text.append(f"Date: {MONTHS[month-1]} {day_of_month}")
+        
+    if filters_text:
         status_text = html.Div([
-            html.Span("Viewing Airport: ", style={"color": "#64748b"}),
-            html.Span(f"{selected_airport}", style={"color": "#f59e0b", "fontWeight": "700"})
+            html.Span("Active Filters: ", style={"color": "#64748b"}),
+            html.Span(" | ".join(filters_text), style={"color": "#f59e0b", "fontWeight": "700"})
         ])
     else:
-        status_text = html.Span("Viewing National Overview (All Airports)", style={"color": "#10b981", "fontWeight": "600"})
+        status_text = html.Span("Viewing National Overview", style={"color": "#10b981", "fontWeight": "600"})
 
     # 2. Fetch Map Data
-    df_map = get_airport_delay_summary(airline=airline, season=season, metric=metric)
+    df_map = get_airport_delay_summary(
+        airline=airline, season=season, metric=metric,
+        month=month, day_of_week=day_of_week, dep_hour=dep_hour, day_of_month=day_of_month
+    )
     
     # Scaling marker sizes based on flight count
     max_flights = df_map["flight_count"].max() if not df_map.empty else 1
@@ -353,7 +433,7 @@ def update_dashboard(metric, airline, season, selected_airport):
             map_zoom = 9.0  # Zoom in closely on the tapped airport
             
     # Plotly Express map
-    fig_map = px.scatter_mapbox(
+    fig_map = px.scatter_map(
         df_map,
         lat="lat",
         lon="lon",
@@ -371,7 +451,7 @@ def update_dashboard(metric, airline, season, selected_airport):
         },
         custom_data=["faa"], # Fixes clickData mapping and hover overlap!
         color_continuous_scale="RdYlGn_r", # green is good, red is bad
-        mapbox_style="carto-darkmatter", # Dark themed map
+        map_style="carto-darkmatter", # Dark themed map
         zoom=map_zoom,
         center=map_center
     )
@@ -399,11 +479,11 @@ def update_dashboard(metric, airline, season, selected_airport):
     if selected_airport and not df_map.empty:
         sel_row = df_map[df_map["faa"] == selected_airport]
         if not sel_row.empty:
-            fig_map.add_trace(go.Scattermapbox(
+            fig_map.add_trace(go.Scattermap(
                 lat=sel_row["lat"],
                 lon=sel_row["lon"],
                 mode="markers",
-                marker=go.scattermapbox.Marker(
+                marker=go.scattermap.Marker(
                     size=35,
                     color="white", # clean white highlight ring
                     opacity=0.4
@@ -423,19 +503,24 @@ def update_dashboard(metric, airline, season, selected_airport):
     # Build Hourly/Weekly Heatmap Figure
     hourly_grid = np.zeros((7, 24))
     hourly_grid[:] = np.nan
+    hourly_custom = np.empty((7, 24, 3), dtype=object)
+    hourly_custom[:] = ""
+    
     for _, r in df_hourly.iterrows():
         d_idx = int(r["DayOfWeek"])
         h_idx = int(r["DepHour"])
         if 0 <= d_idx < 7 and 0 <= h_idx < 24:
             hourly_grid[d_idx, h_idx] = r["avg_val"]
+            hourly_custom[d_idx, h_idx] = [r.get("flight_count", 0), r.get("cancel_rate", 0), r.get("worst_airline", "N/A")]
             
     fig_hourly = go.Figure(data=go.Heatmap(
         z=hourly_grid,
         x=[f"{h:02d}:00" for h in range(24)],
         y=DAYS_OF_WEEK,
+        customdata=hourly_custom,
         colorscale="YlOrRd",
         colorbar=dict(title=metric_label, tickfont=dict(color="#cbd5e1")),
-        hovertemplate="Day: %{y}<br>Hour: %{x}<br>Value: %{z:.2f}<extra></extra>"
+        hovertemplate="Day: %{y}<br>Hour: %{x}<br>Value: %{z:.2f}<br>Flights: %{customdata[0]:,}<br>Cancel Rate: %{customdata[1]:.2f}%<br>Worst Airline: %{customdata[2]}<extra></extra>"
     ))
     
     fig_hourly.update_layout(
@@ -450,19 +535,24 @@ def update_dashboard(metric, airline, season, selected_airport):
     # Build Monthly/Daily Grid Figure
     monthly_grid = np.zeros((12, 31))
     monthly_grid[:] = np.nan
+    monthly_custom = np.empty((12, 31, 3), dtype=object)
+    monthly_custom[:] = ""
+    
     for _, r in df_monthly.iterrows():
         m_idx = int(r["Month"]) - 1
         d_idx = int(r["DayofMonth"]) - 1
         if 0 <= m_idx < 12 and 0 <= d_idx < 31:
             monthly_grid[m_idx, d_idx] = r["avg_val"]
+            monthly_custom[m_idx, d_idx] = [r.get("flight_count", 0), r.get("cancel_rate", 0), r.get("worst_airline", "N/A")]
             
     fig_monthly = go.Figure(data=go.Heatmap(
         z=monthly_grid,
         x=[str(d) for d in range(1, 32)],
         y=MONTHS,
+        customdata=monthly_custom,
         colorscale="YlOrRd",
         colorbar=dict(title=metric_label, tickfont=dict(color="#cbd5e1")),
-        hovertemplate="Month: %{y}<br>Day: %{x}<br>Value: %{z:.2f}<extra></extra>"
+        hovertemplate="Month: %{y}<br>Day: %{x}<br>Value: %{z:.2f}<br>Flights: %{customdata[0]:,}<br>Cancel Rate: %{customdata[1]:.2f}%<br>Worst Airline: %{customdata[2]}<extra></extra>"
     ))
     
     fig_monthly.update_layout(

@@ -183,6 +183,29 @@ cause_fig.update_layout(
 )
 
 
+cause_fig = px.pie(
+
+    cause_df,
+
+    names="Cause",
+
+    values="Minutes",
+
+    hole=0.5,
+
+    color_discrete_sequence=
+    px.colors.qualitative.Set3,
+
+    title="Delay Causes"
+
+)
+
+
+cause_fig.update_layout(
+    template="plotly_dark"
+)
+
+
 
 # Scatter
 
