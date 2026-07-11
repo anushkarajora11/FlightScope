@@ -300,11 +300,18 @@ def update_selected_airport(clickData, current_selected):
         Input("hourly-weekly-heatmap", "clickData"),
         Input("monthly-calendar-heatmap", "clickData"),
         Input("hour-slider", "value"),
+        Input("global-route-store", "data"),
     ]
 )
-def update_dashboard(metric, airline, season, selected_airport, hw_click, mc_click, hour_slider):
+def update_dashboard(metric, airline, season, selected_airport, hw_click, mc_click, hour_slider, route_data):
     ctx = dash.callback_context
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+
+    # Unpack global cross-page route filters
+    o_state = route_data.get("origin_state") if route_data else None
+    d_state = route_data.get("dest_state") if route_data else None
+    o_airport = route_data.get("origin_airport") if route_data else None
+    d_airport = route_data.get("dest_airport") if route_data else None
 
     # Enforce mutual exclusion for temporal clicks by only keeping the most recently triggered one
     if triggered_id == "hourly-weekly-heatmap":
@@ -338,7 +345,11 @@ def update_dashboard(metric, airline, season, selected_airport, hw_click, mc_cli
             pass
 
     # 1. Fetch KPI Stats
-    kpi_stats = get_overall_kpis(airport=selected_airport, airline=airline, season=season)
+    kpi_stats = get_overall_kpis(
+        airport=o_airport, airline=airline, season=season,
+        origin_state=o_state, dest_state=d_state,
+        origin_airport=o_airport, dest_airport=d_airport
+    )
     
     total_flights = f"{kpi_stats['total_flights']:,}"
     avg_dep = f"{kpi_stats['avg_dep_delay']:.1f} m"
@@ -347,8 +358,22 @@ def update_dashboard(metric, airline, season, selected_airport, hw_click, mc_cli
     
     # Selection status text
     filters_text = []
+    
+    if airline:
+        filters_text.append(f"Airline: {airline}")
     if selected_airport:
-        filters_text.append(f"Airport: {selected_airport}")
+        filters_text.append(f"Selected Airport: {selected_airport}")
+    elif o_airport or d_airport:
+        if o_airport:
+            filters_text.append(f"Origin: {o_airport}")
+        if d_airport:
+            filters_text.append(f"Dest: {d_airport}")
+    elif o_state or d_state:
+        if o_state:
+            filters_text.append(f"Origin State: {o_state}")
+        if d_state:
+            filters_text.append(f"Dest State: {d_state}")
+
     if day_of_week is not None and dep_hour is not None:
         filters_text.append(f"Time: {DAYS_OF_WEEK[day_of_week]}s at {dep_hour}:00")
     if month is not None and day_of_month is not None:

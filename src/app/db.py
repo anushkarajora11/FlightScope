@@ -40,23 +40,30 @@ def get_states():
     finally:
         conn.close()
 
-def _build_where_clause(airport=None, airline=None, season=None, month=None, date=None, day_of_week=None, dep_hour=None, day_of_month=None, origin_state=None, dest_state=None, origin_airport=None, dest_airport=None):
+def _build_where_clause(airport=None, airline=None, season=None, month=None, date=None, day_of_week=None, dep_hour=None, day_of_month=None,
+                        origin_state=None, dest_state=None, origin_airport=None, dest_airport=None):
     """Helper to construct WHERE clause filters dynamically using positional parameters."""
     conditions = []
     params = []
-    
+
     if airport:
         conditions.append("Origin = ?")
         params.append(airport)
-        
     if origin_airport:
         conditions.append("Origin = ?")
         params.append(origin_airport)
-        
+
     if dest_airport:
         conditions.append("Dest = ?")
         params.append(dest_airport)
-        
+
+    if origin_state:
+        conditions.append("OriginState = ?")
+        params.append(origin_state)
+
+    if dest_state:
+        conditions.append("DestState = ?")
+        params.append(dest_state)
     if airline:
         conditions.append("Marketing_Airline_Network = ?")
         params.append(airline)
@@ -118,26 +125,30 @@ def _get_airport_delay_summary_cached(airline, season, metric, month, day_of_wee
         if db_metric == 'Cancelled':
             agg_expr = "MEAN(CASE WHEN Cancelled = true THEN 1.0 ELSE 0.0 END) * 100"
         else:
-            agg_expr = f"AVG(CAST({db_metric} AS FLOAT))"
+            agg_expr = "AVG(CAST(metric_val AS FLOAT))"
 
         # Replace backslashes in paths with forward slashes for DuckDB read_csv on Windows
         safe_path = AIRPORTS_CSV_PATH.replace('\\', '/')
 
         query = f"""
+            WITH combined AS (
+                SELECT Origin AS faa, {db_metric} AS metric_val, Cancelled FROM flights {where_clause}
+                UNION ALL
+                SELECT Dest AS faa, {db_metric} AS metric_val, Cancelled FROM flights {where_clause}
+            )
             SELECT 
-                f.Origin AS faa,
+                c.faa,
                 MAX(a.name) AS name,
                 MAX(a.lat) AS lat,
                 MAX(a.lon) AS lon,
                 COUNT(*) AS flight_count,
                 {agg_expr} AS avg_metric
-            FROM flights f
-            JOIN read_csv('{safe_path}') a ON f.Origin = a.faa
-            {where_clause}
-            GROUP BY f.Origin
+            FROM combined c
+            JOIN read_csv('{safe_path}') a ON c.faa = a.faa
+            GROUP BY c.faa
             HAVING MAX(a.lat) IS NOT NULL AND MAX(a.lon) IS NOT NULL
         """
-        df = conn.execute(query, list(params)).df()
+        df = conn.execute(query, list(params + params)).df()
         return df
     finally:
         conn.close()
@@ -220,11 +231,16 @@ def get_temporal_delay_data(airport=None, airline=None, season=None, metric='Dep
     return h.copy(), m.copy()
 
 @lru_cache(maxsize=128)
-def get_overall_kpis(airport=None, airline=None, season=None):
+def get_overall_kpis(airport=None, airline=None, season=None,
+                     origin_state=None, dest_state=None, origin_airport=None, dest_airport=None):
     """Returns overall summary statistics for KPI cards."""
     conn = get_db_connection()
     try:
-        where_clause, params = _build_where_clause(airport=airport, airline=airline, season=season)
+        where_clause, params = _build_where_clause(
+            airport=airport, airline=airline, season=season,
+            origin_state=origin_state, dest_state=dest_state,
+            origin_airport=origin_airport, dest_airport=dest_airport
+        )
         
         query = f"""
             SELECT 
@@ -263,10 +279,16 @@ def get_airport_list():
     finally:
         conn.close()
 
+<<<<<<< HEAD
 def get_network_data(airline=None, season=None, airport=None, origin_state=None, dest_state=None, origin_airport=None, dest_airport=None):
+=======
+def get_network_data(airline=None, season=None, airport=None,
+                     origin_state=None, dest_state=None, origin_airport=None, dest_airport=None):
+>>>>>>> e168b20e94d2ccf8ff46d3a1260478ef1ea5c4ba
     """
     Returns edge list (Origin to Dest counts) and node attributes (Centrality metrics)
     using NetworkX. If airport is given, only routes originating from that airport are included.
+    If origin_state / dest_state are given, filters to routes between those states.
     """
     conn = get_db_connection()
     try:
@@ -485,7 +507,12 @@ def get_pca_sample(airline=None, season=None, month=None, sample_size=5000):
     finally:
         conn.close()
 
+<<<<<<< HEAD
 def get_delay_causes(airline=None, season=None, month=None, date=None, origin_state=None, dest_state=None, origin_airport=None, dest_airport=None):
+=======
+def get_delay_causes(airline=None, season=None, month=None, date=None,
+                     origin_state=None, dest_state=None, origin_airport=None, dest_airport=None):
+>>>>>>> e168b20e94d2ccf8ff46d3a1260478ef1ea5c4ba
     """
     Returns the total minutes for each of the 5 main delay causes,
     grouped by Delay Severity (Minor < 45m, Major >= 45m).

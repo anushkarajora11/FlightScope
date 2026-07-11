@@ -4,7 +4,6 @@ from dash import dcc, html, Input, Output, State, callback
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import pandas as pd
-
 from src.app.db import get_airlines, get_airport_list, get_network_data, get_states
 
 try:
@@ -48,7 +47,7 @@ def get_layout():
         {"label": f"{row.faa} – {row.name}", "value": row.faa} for row in airports_df.itertuples()
     ]
 
-    states = get_states()  # list of (code, name)
+    states = get_states()
     state_options = [{"label": "Any State", "value": ""}] + [
         {"label": name, "value": code} for code, name in states
     ]
