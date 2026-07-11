@@ -279,12 +279,8 @@ def get_airport_list():
     finally:
         conn.close()
 
-<<<<<<< HEAD
-def get_network_data(airline=None, season=None, airport=None, origin_state=None, dest_state=None, origin_airport=None, dest_airport=None):
-=======
 def get_network_data(airline=None, season=None, airport=None,
                      origin_state=None, dest_state=None, origin_airport=None, dest_airport=None):
->>>>>>> e168b20e94d2ccf8ff46d3a1260478ef1ea5c4ba
     """
     Returns edge list (Origin to Dest counts) and node attributes (Centrality metrics)
     using NetworkX. If airport is given, only routes originating from that airport are included.
@@ -507,12 +503,8 @@ def get_pca_sample(airline=None, season=None, month=None, sample_size=5000):
     finally:
         conn.close()
 
-<<<<<<< HEAD
-def get_delay_causes(airline=None, season=None, month=None, date=None, origin_state=None, dest_state=None, origin_airport=None, dest_airport=None):
-=======
 def get_delay_causes(airline=None, season=None, month=None, date=None,
                      origin_state=None, dest_state=None, origin_airport=None, dest_airport=None):
->>>>>>> e168b20e94d2ccf8ff46d3a1260478ef1ea5c4ba
     """
     Returns the total minutes for each of the 5 main delay causes,
     grouped by Delay Severity (Minor < 45m, Major >= 45m).
