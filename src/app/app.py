@@ -44,6 +44,7 @@ app.layout = html.Div([
     dcc.Store(id='global-airport-store', storage_type='memory', data=None),
     dcc.Store(id='network-selected-airport-store', storage_type='memory', data=None),
     dcc.Store(id='selected-airport-store', storage_type='memory', data=None),
+    dcc.Store(id='global-selected-airport-store', storage_type='session', data={'airport': None}),
     # Navigation Bar with Global Filters
     dbc.Navbar(
         dbc.Container(
