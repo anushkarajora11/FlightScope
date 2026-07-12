@@ -110,6 +110,7 @@ app.layout = html.Div([
             fluid=True
         ),
         color="#1a1d2b",
+
         dark=True,
         sticky="top",
         className="shadow",
