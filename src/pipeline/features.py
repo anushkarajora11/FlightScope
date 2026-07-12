@@ -93,11 +93,15 @@ def build_features(df):
     
     # 7. Dimensionality Reduction (UMAP - Memory Safe Version)
     print("Running UMAP on a 100k subset to save memory...")
+    # Apply log1p (log(1+x)) to the heavily skewed delay features to prevent them from dominating distances
+    df['ArrDelay_Log'] = np.log1p(df['ArrDelay'].clip(lower=0))
+    df['DepDelay_Log'] = np.log1p(df['DepDelay'].clip(lower=0))
+
     umap_features = [
-        'Distance', 'CRSDepTime_Mins', 'CRSArrTime_Mins', 'DepDelay', 'ArrDelay', 
-        'TaxiOut', 'TaxiIn', 'ActualElapsedTime', 'AirTime', 'Airline_Delay_Risk', 
-        'Origin_Airport_Risk', 'Dest_Airport_Risk', 'Total_Taxi_Time', 
-        'Ground_Time_Ratio', 'Time_Made_Up', 'Origin_Dep_Congestion', 'Dest_Arr_Congestion'
+        'Distance', 'DepDelay_Log', 'ArrDelay_Log', 
+        'Airline_Delay_Risk', 'Origin_Airport_Risk', 'Dest_Airport_Risk', 
+        'Ground_Time_Ratio', 'Time_Made_Up', 
+        'Origin_Dep_Congestion', 'Dest_Arr_Congestion'
     ]
     
     # Initialize the columns with empty data (NaN)
@@ -113,8 +117,8 @@ def build_features(df):
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X_umap)
     
-    # Fit the UMAP model - CHANGED n_components to 3
-    reducer = umap.UMAP(n_components=3, n_jobs=-1, random_state=42)
+    # Fit the UMAP model - tuned for tighter, more distinct local clusters
+    reducer = umap.UMAP(n_components=3, n_neighbors=15, min_dist=0.15, n_jobs=-1, random_state=42)
     components = reducer.fit_transform(X_scaled)
     
     # Map the 3D coordinates back into the main dataset
