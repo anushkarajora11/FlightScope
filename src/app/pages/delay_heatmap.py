@@ -246,7 +246,7 @@ def update_selected_airport(clickData, current_selected):
         Input("metric-dropdown", "value"),
         Input("airline-dropdown", "value"),
         Input("season-dropdown", "value"),
-        Input("global-selected-airport-store", "data"),
+        Input("airport-dropdown", "value"),
         Input("hourly-weekly-heatmap", "clickData"),
         Input("monthly-calendar-heatmap", "clickData"),
         Input("hour-slider", "value"),
@@ -520,11 +520,3 @@ def update_dashboard(metric, airline, season, selected_airport, hw_click, mc_cli
 
 # Main entrypoint layout reference
 layout = get_layout()
-
-@callback(
-    Output('airport-dropdown', 'value', allow_duplicate=True),
-    Input('global-airport-store', 'data'),
-    prevent_initial_call=True
-)
-def update_heatmap_from_global_store(global_data):
-    return global_data
